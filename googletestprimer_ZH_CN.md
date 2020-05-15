@@ -371,3 +371,154 @@ TEST_F(QueueTest, DequeueWorks) {
   delete n;
 }
 ```
+上面的代码同时用了```ASSERT_*```和```EXPECT_*```断言。
+基本的规则是当你希望测试在某个断言不通过时可以报出更多的错误时
+使用```EXPECTE_*```；而当某个断言不通过时继续测试根本没有意义
+则使用```ASSERT_*```。
+例如，上面的```Dequeue```中的第二个测试是```ASSERT_NE(nullptr, n)```，
+因为我们之后需要释放指针```n```，
+因此如果```n```是```NULL```的话会导致段错误。
+
+当测试开始运行时，会发生下列事件：
+
+1. googletest构造一个```QueueTest```对象（我们称其为t1）
+2. t1.SetUp()将初始化t1
+3. 对t1执行第一个测试（IsEmptyInitially）
+4. ```t1.TearDown()```在测试结束时清理现场
+5. ```t1```被析构
+6. 上述流程对另一个```QueueTest```对象执行，这次执行```DqueueWorks```测试。
+
+
+**可用性**：Linux，Windows，Mac。
+
+## 触发测试
+
+```TEST()```和```TEST_F()```会向googletest显式地注册他们的测试，
+因此，不像很多其他的C++测试框架，
+你不需要为了执行测试而重新列出所有测试。
+
+在定义你的测试之后，
+你可以通过```RUN_ALL_TESTS()```来执行他们，
+如果所有的测试都通过了，这个宏将会返回0，否则是1.
+注意```RUN_ALL_TESTS()```会执行相关模块中的*所有测试*，
+即使他们在不同的测试套件，甚至不同的源文件之中。
+
+当你调用触发了```RUN_ALL_TESTS()```的时候，他会做以下事情：
+1. 存储所有Googletest Flag（译者注：指的是一系列用于标注状态的变量，以下该术语不做翻译）的状态
+2. 为第一项测试创建一个测试套件对象
+3. 通过```SetUp()```方法初始化他
+4. 对测试套件对象执行测试
+5. 通过```TearDown()```方式来清理测试套件
+6. 删除测试套件
+7. 恢复所有googltest flag的状态
+8. 对每一个测试重复以上步骤
+
+如果发生了致命错误，那么之后的步骤就会被跳过。
+
+> 重要：千万不要忽略RUN_ALL_TESTS()的返回值，否则你会得到一个编译报错。
+这种设计的理由在于很多自动化测试服务是通过程序的返回值来界定测试是否通过的，
+而不是他的标准输出/标准错误上的输出。因此你的主函数```main()```
+必须要返回```RUN_ALL_TESTS()```的返回值。
+
+> 同时，你应该只调用一次```RUN_ALL_TESTS()```。
+如果调用它多于一次将会和很多进阶的googletest特性向冲突
+（例如线程安全的死亡测试），
+因此我们不建议这么做。
+
+**可用性**：Linux，Windows，Mac。
+
+##  编写```main()```函数
+
+绝大多数用户不会需要手动写```main()```函数，
+而是连接到```gtest_main```,
+他定了一个合理的入口函数。
+这一节所说的内容仅仅适用于
+当你需要实现一些在开始测试前客制化的流程，
+且这种流程无法通过框架本身，或者测试设施、测试套件来表达的情况。
+
+如果你需要写自己的```main```函数，他应该返回```RUN_ALL_TESTS()```的返回值。
+
+你可以从下面的样例开始：
+```C++
+#include "this/package/foo.h"
+
+#include "gtest/gtest.h"
+
+namespace my {
+namespace project {
+namespace {
+
+// The fixture for testing class Foo.
+class FooTest : public ::testing::Test {
+ protected:
+  // You can remove any or all of the following functions if their bodies would
+  // be empty.
+
+  FooTest() {
+     // You can do set-up work for each test here.
+  }
+
+  ~FooTest() override {
+     // You can do clean-up work that doesn't throw exceptions here.
+  }
+
+  // If the constructor and destructor are not enough for setting up
+  // and cleaning up each test, you can define the following methods:
+
+  void SetUp() override {
+     // Code here will be called immediately after the constructor (right
+     // before each test).
+  }
+
+  void TearDown() override {
+     // Code here will be called immediately after each test (right
+     // before the destructor).
+  }
+
+  // Class members declared here can be used by all tests in the test suite
+  // for Foo.
+};
+
+// Tests that the Foo::Bar() method does Abc.
+TEST_F(FooTest, MethodBarDoesAbc) {
+  const std::string input_filepath = "this/package/testdata/myinputfile.dat";
+  const std::string output_filepath = "this/package/testdata/myoutputfile.dat";
+  Foo f;
+  EXPECT_EQ(f.Bar(input_filepath, output_filepath), 0);
+}
+
+// Tests that Foo does Xyz.
+TEST_F(FooTest, DoesXyz) {
+  // Exercises the Xyz feature of Foo.
+}
+
+}  // namespace
+}  // namespace project
+}  // namespace my
+
+int main(int argc, char **argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}
+```
+
+```::testing::InitGoogleTest()```函数会解析命令行参数，
+并设置googletest flag，并去除所有已经识别到的Flags
+（译者注：这一句的翻译存疑）。
+这允许用户通过一系列的flag来定制测试程序的行为，
+具体的内容我们会在
+[进阶指南](https://github.com/google/googletest/blob/master/googletest/docs/advanced.md)
+中说明。
+在调用```RUN_ALL_TESTS()```之前必须调用这个函数，
+否则各个Flag将不会被正确的初始化。
+
+在Windows平台上，
+```InitGoogleTest()```对于所有```wide stirng```都是可用的，
+因此它也可以用于以```UNICODE```模式编译的程序。
+
+但是你可能认为编写```main()```非常麻烦，我们完全同意这一点，
+这就是为什么Google Test会提供一个```main()```的基本实现。
+如果他能满足你的需求，
+那就直接把你的程序连接到```gtest_main```库就可以啦。
+
+注意：```ParseGUnitFlags()```已经废弃，现在用的是```InitGoogleTest()```
